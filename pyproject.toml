@@ -1,0 +1,27 @@
+[project]
+name = "tmux-wrapper"
+version = "0.1.0"
+description = "Lightweight tmux automation wrapper and renderer."
+readme = { text = "Lightweight tmux automation wrapper and renderer.", content-type = "text/plain" }
+requires-python = ">=3.9"
+dependencies = [
+    "fire>=0.7.1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+tmux-c = "tmux_wrapper:main"
+
+[tool.setuptools]
+py-modules = ["tmux_wrapper"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
