@@ -2,11 +2,30 @@
 name = "tmux-wrapper"
 version = "0.1.0"
 description = "Lightweight tmux automation wrapper and renderer."
-readme = { text = "Lightweight tmux automation wrapper and renderer.", content-type = "text/plain" }
+readme = "README.md"
 requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["tmux", "terminal", "automation", "cli"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Terminals",
+]
 dependencies = [
     "fire>=0.7.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Randomizez/TmuxWrapper"
+Repository = "https://github.com/Randomizez/TmuxWrapper"
+Issues = "https://github.com/Randomizez/TmuxWrapper/issues"
 
 [build-system]
 requires = ["setuptools>=68"]

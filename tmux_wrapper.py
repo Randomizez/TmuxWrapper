@@ -17,12 +17,13 @@ Public entry points:
    adding a trailing newline.
 3) ``TMUXWrapper.press(chords)`` sends one or more key chords, including tmux
    prefix sequences such as ``(Keys.Ctrl, Keys.B)`` followed by another key.
-4) ``TMUXWrapper.glance()`` is the recommended inspection API. It compares the
-   current window against the previous capture and returns an ``ndiff``-style
-   line-by-line delta.
-5) ``TMUXWrapper.view()`` is still available for full-screen snapshots or
-   baseline resets, but new workflows should prefer ``glance()``.
-6) ``TMUXWrapper.scroll_up(lines=3)`` and ``scroll_down(lines=3)`` emulate
+4) ``TMUXWrapper.snapshot()`` captures the whole current window and resets the
+   diff baseline.
+5) ``TMUXWrapper.view()`` is the recommended inspection API. It compares the
+   current window against the previous capture and keeps unchanged context.
+6) ``TMUXWrapper.glance()`` shows only the incremental additions since the
+   previous capture.
+7) ``TMUXWrapper.scroll_up(lines=3)`` and ``scroll_down(lines=3)`` emulate
    mouse-wheel scrolling by operating tmux copy mode in line increments.
 
 Behavior notes:
@@ -34,17 +35,19 @@ Behavior notes:
 Example:
     >>> from tmux_wrapper import Keys, TMUXWrapper
     >>> tmux = TMUXWrapper(session="demo")
-    >>> tmux.glance()  # establish an initial baseline if needed
+    >>> tmux.snapshot()  # establish an initial baseline
     >>> tmux.type("echo hello")
     >>> tmux.press([(Keys.Enter,)])
-    >>> print(tmux.glance())
+    >>> print(tmux.view())
     ...
     >>> tmux.delete()
 
 CLI:
-    $ tmux-c demo glance
+    $ tmux-c demo snapshot
     $ tmux-c demo type "ls"
     $ tmux-c demo press Enter
+    $ tmux-c demo view
+    $ tmux-c demo glance
     $ tmux-c demo press Ctrl+B Z
     $ tmux-c demo scroll_up 5
 """
@@ -490,24 +493,28 @@ class TMUXWrapper:
             encoded = self._encode_chord(chord)
             self._run_tmux(["send-keys", "-t", self._target(), encoded])
 
-    def view(self) -> literal:
-        """Deprecated: capture the whole tmux window as a full printable snapshot."""
+    def snapshot(self) -> literal:
+        """Capture the whole tmux window and reset the diff baseline."""
         content = self._attach_capture()
         self._afterimage = content
         return literal("\n".join(content))
 
     def glance(self) -> literal:
-        """Return an ndiff delta without explicit `-` or `?` lines."""
+        """Return additions plus counted collapsed markers for unchanged regions."""
         afterimage = self._afterimage
         content = self._attach_capture()
         self._afterimage = content
-        diff = []
-        for line in difflib.ndiff(afterimage, content):
-            if line.startswith(("- ", "? ")):
-                continue
-            if line.startswith("+ "):
-                line = f"!!{line[2:]}"
-            diff.append(line)
+        diff = self._glance_lines(afterimage, content)
+        if not diff:
+            return literal("[Nothing Changed]")
+        return literal("\n".join(diff))
+
+    def view(self) -> literal:
+        """Return a contextual diff against the previous capture."""
+        afterimage = self._afterimage
+        content = self._attach_capture()
+        self._afterimage = content
+        diff = self._diff_lines(afterimage, content, include_context=True)
         return literal("\n".join(diff))
 
     def scroll_up(self, lines: int = 3) -> None:
@@ -685,6 +692,49 @@ class TMUXWrapper:
         if not value:
             return None
         return int(value)
+
+    @staticmethod
+    def _diff_lines(
+        before: list[str],
+        after: list[str],
+        include_context: bool,
+    ) -> list[str]:
+        diff = []
+        for line in difflib.ndiff(before, after):
+            if line.startswith(("- ", "? ")):
+                continue
+            if line.startswith("+ "):
+                diff.append(f"!!{line[2:]}")
+                continue
+            if include_context:
+                diff.append(line)
+        return diff
+
+    @staticmethod
+    def _glance_lines(before: list[str], after: list[str]) -> list[str]:
+        lines = []
+        pending_context = 0
+        saw_addition = False
+
+        for line in difflib.ndiff(before, after):
+            if line.startswith(("- ", "? ")):
+                continue
+            if line.startswith("+ "):
+                if pending_context:
+                    suffix = "line" if pending_context == 1 else "lines"
+                    lines.append(f"...[{pending_context} unchanged {suffix}]")
+                    pending_context = 0
+                lines.append(f"!!{line[2:]}")
+                saw_addition = True
+                continue
+            pending_context += 1
+
+        if not saw_addition:
+            return []
+        if pending_context:
+            suffix = "line" if pending_context == 1 else "lines"
+            lines.append(f"...[{pending_context} unchanged {suffix}]")
+        return lines
 
     def _enter_copy_mode(self) -> None:
         if self._in_copy_mode():
@@ -987,14 +1037,21 @@ class _TMUXWrapperCLI:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._state_path.write_text(json.dumps(self._tmux._afterimage))
 
+    def snapshot(self) -> literal:
+        """Capture the whole current window and reset the baseline."""
+        rendered = self._tmux.snapshot()
+        self._save_afterimage()
+        return rendered
+
     def view(self) -> literal:
-        """Render the full current window."""
+        """Show a contextual diff against the previous CLI capture."""
+        self._load_afterimage()
         rendered = self._tmux.view()
         self._save_afterimage()
         return rendered
 
     def glance(self) -> literal:
-        """Show a unified diff against the previous CLI capture."""
+        """Show only incremental additions against the previous CLI capture."""
         self._load_afterimage()
         rendered = self._tmux.glance()
         self._save_afterimage()
@@ -1037,9 +1094,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not args:
         print("Usage: tmux-c <session> <command> [args...]")
         print("Examples:")
-        print("  tmux-c test glance")
+        print("  tmux-c test snapshot")
         print('  tmux-c test type "ls"')
         print("  tmux-c test press Enter")
+        print("  tmux-c test view")
+        print("  tmux-c test glance")
         print("  tmux-c test press Ctrl+C")
         print("  tmux-c test press Ctrl+B Z")
         print("  tmux-c test scroll_up 5")

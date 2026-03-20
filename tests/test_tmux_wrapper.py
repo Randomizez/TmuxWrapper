@@ -17,19 +17,26 @@ class FakeTMUXWrapper:
         self._owns_session = True
         self._afterimage = []
         self.calls = []
+        self.view_seen_afterimage = None
         self.glance_seen_afterimage = None
-        self.view_result = ["first line", "second line"]
-        self.glance_result = ["diff line"]
+        self.snapshot_result = ["first line", "second line"]
+        self.view_afterimage = ["first line", "third line"]
+        self.glance_afterimage = ["first line", "fourth line"]
         type(self).instances.append(self)
 
+    def snapshot(self) -> tmux_wrapper.literal:
+        self._afterimage = list(self.snapshot_result)
+        return tmux_wrapper.literal("\n".join(self.snapshot_result))
+
     def view(self) -> tmux_wrapper.literal:
-        self._afterimage = list(self.view_result)
-        return tmux_wrapper.literal("\n".join(self.view_result))
+        self.view_seen_afterimage = list(self._afterimage)
+        self._afterimage = list(self.view_afterimage)
+        return tmux_wrapper.literal("  first line\n!!third line")
 
     def glance(self) -> tmux_wrapper.literal:
         self.glance_seen_afterimage = list(self._afterimage)
-        self._afterimage = list(self.glance_result)
-        return tmux_wrapper.literal("\n".join(self.glance_result))
+        self._afterimage = list(self.glance_afterimage)
+        return tmux_wrapper.literal("!!fourth line")
 
     def type(self, text: str) -> None:
         self.calls.append(("type", text))
@@ -100,25 +107,33 @@ def test_cli_scroll_helpers_forward_line_counts(monkeypatch: pytest.MonkeyPatch)
     assert cli._tmux.calls == [("scroll_up", 3), ("scroll_down", 5)]
 
 
-def test_view_and_glance_persist_afterimage_between_invocations(
+def test_snapshot_view_and_glance_persist_afterimage_between_invocations(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(tmux_wrapper, "TMUXWrapper", FakeTMUXWrapper)
 
     first = tmux_wrapper._TMUXWrapperCLI("demo")
     first._state_path = tmp_path / "afterimage.json"
-    rendered = first.view()
+    rendered = first.snapshot()
 
     assert rendered == "first line\nsecond line"
     assert json.loads(first._state_path.read_text()) == ["first line", "second line"]
 
     second = tmux_wrapper._TMUXWrapperCLI("demo")
     second._state_path = first._state_path
-    diff = second.glance()
+    diff = second.view()
 
-    assert diff == "diff line"
-    assert second._tmux.glance_seen_afterimage == ["first line", "second line"]
-    assert json.loads(second._state_path.read_text()) == ["diff line"]
+    assert diff == "  first line\n!!third line"
+    assert second._tmux.view_seen_afterimage == ["first line", "second line"]
+    assert json.loads(second._state_path.read_text()) == ["first line", "third line"]
+
+    third = tmux_wrapper._TMUXWrapperCLI("demo")
+    third._state_path = first._state_path
+    diff = third.glance()
+
+    assert diff == "!!fourth line"
+    assert third._tmux.glance_seen_afterimage == ["first line", "third line"]
+    assert json.loads(third._state_path.read_text()) == ["first line", "fourth line"]
 
 
 def test_delete_removes_saved_afterimage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -150,7 +165,21 @@ def test_try_copy_mode_action_places_target_before_action(monkeypatch: pytest.Mo
     assert commands == [["send-keys", "-X", "-N", "4", "-t", "demo", "scroll-up"]]
 
 
-def test_glance_returns_ndiff_output(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_view_returns_contextual_diff(monkeypatch: pytest.MonkeyPatch) -> None:
+    wrapper = _make_wrapper()
+    wrapper._afterimage = ["line1", "line2", "line4"]
+    monkeypatch.setattr(wrapper, "_attach_capture", lambda: ["line1", "line3", "line4"])
+
+    rendered = wrapper.view()
+
+    assert rendered.splitlines() == [
+        "  line1",
+        "!!line3",
+        "  line4",
+    ]
+
+
+def test_glance_returns_incremental_only(monkeypatch: pytest.MonkeyPatch) -> None:
     wrapper = _make_wrapper()
     wrapper._afterimage = ["line1", "line2", "line4"]
     monkeypatch.setattr(wrapper, "_attach_capture", lambda: ["line1", "line3", "line4"])
@@ -158,9 +187,9 @@ def test_glance_returns_ndiff_output(monkeypatch: pytest.MonkeyPatch) -> None:
     rendered = wrapper.glance()
 
     assert rendered.splitlines() == [
-        "  line1",
+        "...[1 unchanged line]",
         "!!line3",
-        "  line4",
+        "...[1 unchanged line]",
     ]
 
 
@@ -171,10 +200,47 @@ def test_glance_hides_pure_deletion_lines(monkeypatch: pytest.MonkeyPatch) -> No
 
     rendered = wrapper.glance()
 
+    assert rendered == "[Nothing Changed]"
+
+
+def test_glance_collapses_multiple_unchanged_regions(monkeypatch: pytest.MonkeyPatch) -> None:
+    wrapper = _make_wrapper()
+    wrapper._afterimage = ["a", "b", "c", "d", "e"]
+    monkeypatch.setattr(wrapper, "_attach_capture", lambda: ["a", "x", "c", "y", "e"])
+
+    rendered = wrapper.glance()
+
     assert rendered.splitlines() == [
-        "  line1",
-        "  line3",
+        "...[1 unchanged line]",
+        "!!x",
+        "...[1 unchanged line]",
+        "!!y",
+        "...[1 unchanged line]",
     ]
+
+
+def test_glance_uses_plural_for_longer_unchanged_regions(monkeypatch: pytest.MonkeyPatch) -> None:
+    wrapper = _make_wrapper()
+    wrapper._afterimage = ["a", "b", "c", "d", "e", "f"]
+    monkeypatch.setattr(wrapper, "_attach_capture", lambda: ["a", "b", "x", "d", "e", "f"])
+
+    rendered = wrapper.glance()
+
+    assert rendered.splitlines() == [
+        "...[2 unchanged lines]",
+        "!!x",
+        "...[3 unchanged lines]",
+    ]
+
+
+def test_snapshot_returns_full_screen_and_resets_baseline(monkeypatch: pytest.MonkeyPatch) -> None:
+    wrapper = _make_wrapper()
+    monkeypatch.setattr(wrapper, "_attach_capture", lambda: ["line1", "line2"])
+
+    rendered = wrapper.snapshot()
+
+    assert rendered == "line1\nline2"
+    assert wrapper._afterimage == ["line1", "line2"]
 
 
 def test_scroll_up_enters_copy_mode_and_uses_repeat_count(monkeypatch: pytest.MonkeyPatch) -> None:
