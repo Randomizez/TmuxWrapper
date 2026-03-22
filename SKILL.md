@@ -25,6 +25,7 @@ Primary actions:
 CLI examples assume the package exposes `tmux-c`:
 
 ```bash
+tmux-c skill
 tmux-c demo snapshot
 tmux-c demo type "ls"
 tmux-c demo press Enter

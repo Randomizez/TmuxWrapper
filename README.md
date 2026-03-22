@@ -40,6 +40,12 @@ After installation, the CLI command `tmux-c` is available:
 tmux-c 1 glance
 ```
 
+To print the bundled skill/help text:
+
+```bash
+tmux-c skill
+```
+
 ## Quick Start
 
 ### Python API

@@ -294,6 +294,15 @@ def test_main_without_args_prints_usage(capsys: pytest.CaptureFixture[str]) -> N
     assert "Usage: tmux-c <session> <command> [args...]" in capsys.readouterr().out
 
 
+def test_main_skill_prints_embedded_or_repo_skill(capsys: pytest.CaptureFixture[str]) -> None:
+    rc = tmux_wrapper.main(["skill"])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "name: tmux-wrapper" in out
+    assert "TMUX Wrapper" in out
+
+
 def test_main_dispatches_to_fire(monkeypatch: pytest.MonkeyPatch) -> None:
     fire_calls = []
 
