@@ -1,111 +1,79 @@
 # tmux-wrapper
 
-`tmux-wrapper` is a small Python module and CLI for driving a tmux session like
-a human: type text, press key chords, inspect what changed, and scroll through
+`tmux-wrapper` is a Python module and CLI for driving a tmux session like a
+human: type text, press key chords, inspect what changed, and scroll through
 history.
 
-It is designed for agent workflows, test automation, and other cases where you
-want a simple tmux control surface instead of shelling out to a large stack of
-custom tmux commands.
+It is aimed at agent workflows, test automation, and other situations where
+tmux should be treated as an interactive device instead of a bag of ad-hoc tmux
+CLI commands.
 
-## Features
+## Installation
 
-- `type(text)` sends literal text to the active pane.
-- `press(chords)` sends key chords such as `Enter`, `Ctrl+C`, or `Ctrl+B Z`.
-- `snapshot()` captures the full current screen and resets the diff baseline.
-- `view()` is the recommended inspection API. It returns a contextual,
-  line-oriented delta against the previous capture.
-- `glance()` returns incremental additions plus collapsed
-  `...[N unchanged lines]` markers for unchanged regions.
-- `scroll_up(lines=3)` and `scroll_down(lines=3)` emulate mouse-wheel style
-  scrolling via tmux copy mode.
-- `tmux-c` provides the same workflow from the command line.
+```bash
+pip install tmux-wrapper
+```
+
+After installation, the CLI command is:
+
+```bash
+tmux-c
+```
+
+To print the bundled inline skill/help text:
+
+```bash
+tmux-c skill
+```
 
 ## Requirements
 
 - Python 3.9+
 - `tmux` installed and available on `PATH`
 
-## Installation
+## Core Model
 
-Install from PyPI:
+Treat one tmux session as a serialized device.
 
-```bash
-pip install tmux-wrapper
-```
+For a given session:
+- send one action
+- wait briefly or inspect
+- then send the next action
 
-After installation, the CLI command `tmux-c` is available:
+Do not overlap wrapper actions against the same session.
 
-```bash
-tmux-c 1 glance
-```
+The most important mental model is:
 
-To print the bundled skill/help text:
+- `tmux-wrapper` is not a screenshot reader
+- it is an incremental observer whose output depends on the previous capture
 
-```bash
-tmux-c skill
-```
+Once you treat it that way, the workflow becomes much more predictable.
 
-## Quick Start
-
-### Python API
+## Main API
 
 ```python
 from tmux_wrapper import Keys, TMUXWrapper
-
-tmux = TMUXWrapper(session="demo")
-
-# Establish a baseline for future view()/glance() calls.
-tmux.snapshot()
-
-tmux.type("echo hello")
-tmux.press([(Keys.Enter,)])
-print(tmux.view())
-
-# For a compact "only what was newly added" report:
-print(tmux.glance())
-
-tmux.scroll_up(5)
-print(tmux.view())
-
-tmux.scroll_down(999)
-tmux.delete()
 ```
 
-### CLI
+- `type(text)` sends literal text only.
+- `press(chords)` sends one or more key chords.
+- `glance()` is the default inspection method.
+- `view()` is the fallback inspection method when `glance()` is too compressed.
+- `scroll_up(lines=3)` / `scroll_down(lines=3)` provide line-based history scrolling.
+- `snapshot()` is intentionally disabled.
 
-```bash
-tmux-c demo snapshot
-tmux-c demo type "ls /data"
-tmux-c demo press Enter
-tmux-c demo view
-tmux-c demo glance
-tmux-c demo scroll_up 5
-tmux-c demo view
-tmux-c demo scroll_down 999
-```
+## Inspection Semantics
 
-## How Inspection Works
+### `glance()`
 
-`view()` is the default inspection method.
+`glance()` is the default inspection method.
 
-- `snapshot()` captures the full screen and stores it as the new baseline.
-- `view()` compares the current screen against the previous capture.
-- `glance()` uses the same diff basis, but returns only added lines plus
-  `...[N unchanged lines]` markers for unchanged regions.
-- Added lines are marked with `!!`.
-- Removed lines are hidden.
-- `?` helper lines from `difflib.ndiff` are also hidden.
-- If there are no new additions, `glance()` returns `[Nothing Changed]`.
+It returns:
+- newly added lines as `!!...`
+- unchanged regions as `...[N unchanged line(s)]`
+- `[Nothing Changed]` when no new additions appeared
 
 Example:
-
-```text
-!!new output line
-  existing prompt context
-```
-
-For compact incremental output, `glance()` returns abbreviated output such as:
 
 ```text
 ...[12 unchanged lines]
@@ -113,46 +81,137 @@ For compact incremental output, `glance()` returns abbreviated output such as:
 ...[3 unchanged lines]
 ```
 
-## Press Syntax
+### `view()`
 
-In Python, `press()` accepts a list of chords:
+`view()` is the fallback when you need more context.
+
+Compared with `glance()`:
+- it keeps unchanged context lines
+- it is better when you want the precise current screen region
+- it is noisier than `glance()`
+
+## Recommended Workflow
+
+Default to `glance()`. Use `view()` only when `glance()` does not provide
+enough context.
+
+### Python
 
 ```python
+from tmux_wrapper import Keys, TMUXWrapper
+
+tmux = TMUXWrapper(session="demo")
+
+tmux.glance()
+tmux.type("echo hello")
+tmux.glance()
 tmux.press([(Keys.Enter,)])
-tmux.press([(Keys.Ctrl, Keys.C)])
-tmux.press([(Keys.Ctrl, Keys.B), (Keys.Z,)])
-tmux.press([(Keys.Ctrl, Keys.B), (Keys.Left,)])
+print(tmux.glance())
+print(tmux.view())
 ```
 
-In the CLI, each chord is passed as an argument:
+### CLI
 
 ```bash
+tmux-c demo glance
+tmux-c demo type "echo hello"
+tmux-c demo glance
 tmux-c demo press Enter
-tmux-c demo press Ctrl+C
-tmux-c demo press Ctrl+B Z
-tmux-c demo press Ctrl+B Left
+tmux-c demo glance
+tmux-c demo view
 ```
 
-## Scrolling
+## Command Entry Safety
 
-`scroll_up()` and `scroll_down()` are line-based helpers built on tmux copy
-mode.
+- Before typing into an existing shell, inspect first.
+- If the pane may still be running something, use `press Ctrl+C`, then inspect again until you see a stable prompt.
+- If a shell line may already contain partial input, clear it before retyping.
+- Prefer `press Ctrl+C` for interrupting a running process.
+- Use `press Ctrl+U` only when you specifically want to clear the current shell line.
+- Do not send `type "..."` and `press Enter` in the same parallel batch.
+- For long commands, prefer:
+  - `glance`
+  - `type`
+  - `glance` or a short wait
+  - `press Enter`
+  - `glance`
+- If the command text is visible at the prompt but did not execute, press `Enter` once and inspect. Do not retype until you know the line is clean.
 
-- `scroll_up(lines)` enters copy mode and scrolls up by `lines`.
-- `scroll_down(lines)` scrolls down by `lines`.
-- When `scroll_down()` reaches the bottom, it exits copy mode automatically.
+Recommended shared-shell pattern:
 
-This matches the intended "mouse wheel with `set -g mouse on`" feel more closely
-than page-based movement.
+```bash
+tmux-c demo glance
+tmux-c demo press Ctrl+C
+tmux-c demo glance
+tmux-c demo type "python your_long_running_command.py ..."
+tmux-c demo glance
+tmux-c demo press Enter
+tmux-c demo glance
+```
+
+## Common Patterns
+
+### Run a command
+
+```bash
+tmux-c demo type "pytest -q"
+tmux-c demo press Enter
+tmux-c demo glance
+```
+
+### Interrupt
+
+```bash
+tmux-c demo press Ctrl+C
+```
+
+### Pane navigation
+
+```bash
+tmux-c demo press Ctrl+B Left
+tmux-c demo press Ctrl+B Right
+```
+
+### Zoom toggle
+
+```bash
+tmux-c demo press Ctrl+B Z
+```
+
+### Scroll through output
+
+```bash
+tmux-c demo scroll_up 20
+tmux-c demo glance
+tmux-c demo scroll_down 20
+tmux-c demo glance
+```
+
+## Practical Usage Notes
+
+- `glance()` is best for “what was added?”
+- `view()` is better when you want the exact visible screen region
+- `scroll_up()` enters tmux history; it does not rerun the command
+- `scroll_down 9999` is a practical way to return to the bottom and usually exits copy mode too
+- When reading the top of a big file, the most reliable flow is:
+  - print the whole file once
+  - scroll up in small steps
+  - inspect with `glance()`
+- If you scroll too far in one jump, you may end up in older terminal history instead of the output you just produced
+- The diff baseline persists per session, so always keep track of what the last capture was
+- If the session becomes messy, the usual recovery pattern is:
+  - `press Ctrl+C`
+  - `scroll_down 9999`
+  - inspect
+  - rerun the command
 
 ## Session Behavior
 
-- `TMUXWrapper(session="name")` creates the session if it does not already
-  exist.
-- If the wrapper created the session, object cleanup will delete it by default.
+- `TMUXWrapper(session="name")` creates the session if it does not already exist.
+- If the wrapper created the session, object cleanup deletes it by default.
 - Calling `delete()` always deletes the session immediately.
-- CLI snapshot/view/glance state is persisted per session so repeated
-  `tmux-c ...` calls can diff across separate invocations.
+- `view()` and `glance()` are stateful because they update the stored baseline.
+- CLI baseline state is persisted per session so separate `tmux-c` invocations can still diff correctly.
 
 ## Development
 
@@ -168,9 +227,8 @@ Run tests:
 env -u VIRTUAL_ENV uv run pytest -q
 ```
 
-## Notes
+Build distributions:
 
-- The package focuses on a practical tmux-driving workflow, not a full tmux
-  abstraction layer.
-- The renderer captures the full tmux window, not just a single pane.
-- The cursor is rendered visibly in full-screen snapshots.
+```bash
+env -u VIRTUAL_ENV uv build
+```

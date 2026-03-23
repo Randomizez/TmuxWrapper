@@ -19,14 +19,9 @@ class FakeTMUXWrapper:
         self.calls = []
         self.view_seen_afterimage = None
         self.glance_seen_afterimage = None
-        self.snapshot_result = ["first line", "second line"]
         self.view_afterimage = ["first line", "third line"]
         self.glance_afterimage = ["first line", "fourth line"]
         type(self).instances.append(self)
-
-    def snapshot(self) -> tmux_wrapper.literal:
-        self._afterimage = list(self.snapshot_result)
-        return tmux_wrapper.literal("\n".join(self.snapshot_result))
 
     def view(self) -> tmux_wrapper.literal:
         self.view_seen_afterimage = list(self._afterimage)
@@ -107,17 +102,14 @@ def test_cli_scroll_helpers_forward_line_counts(monkeypatch: pytest.MonkeyPatch)
     assert cli._tmux.calls == [("scroll_up", 3), ("scroll_down", 5)]
 
 
-def test_snapshot_view_and_glance_persist_afterimage_between_invocations(
+def test_view_and_glance_persist_afterimage_between_invocations(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(tmux_wrapper, "TMUXWrapper", FakeTMUXWrapper)
 
     first = tmux_wrapper._TMUXWrapperCLI("demo")
     first._state_path = tmp_path / "afterimage.json"
-    rendered = first.snapshot()
-
-    assert rendered == "first line\nsecond line"
-    assert json.loads(first._state_path.read_text()) == ["first line", "second line"]
+    first._state_path.write_text(json.dumps(["first line", "second line"]))
 
     second = tmux_wrapper._TMUXWrapperCLI("demo")
     second._state_path = first._state_path
@@ -233,14 +225,18 @@ def test_glance_uses_plural_for_longer_unchanged_regions(monkeypatch: pytest.Mon
     ]
 
 
-def test_snapshot_returns_full_screen_and_resets_baseline(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_snapshot_is_disabled() -> None:
     wrapper = _make_wrapper()
-    monkeypatch.setattr(wrapper, "_attach_capture", lambda: ["line1", "line2"])
+    with pytest.raises(RuntimeError, match="snapshot\\(\\) is disabled"):
+        wrapper.snapshot()
 
-    rendered = wrapper.snapshot()
 
-    assert rendered == "line1\nline2"
-    assert wrapper._afterimage == ["line1", "line2"]
+def test_cli_snapshot_is_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tmux_wrapper, "TMUXWrapper", FakeTMUXWrapper)
+    cli = tmux_wrapper._TMUXWrapperCLI("demo")
+
+    with pytest.raises(RuntimeError, match="snapshot is disabled"):
+        cli.snapshot()
 
 
 def test_scroll_up_enters_copy_mode_and_uses_repeat_count(monkeypatch: pytest.MonkeyPatch) -> None:
