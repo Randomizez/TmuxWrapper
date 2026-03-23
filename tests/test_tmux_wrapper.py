@@ -157,6 +157,17 @@ def test_try_copy_mode_action_places_target_before_action(monkeypatch: pytest.Mo
     assert commands == [["send-keys", "-X", "-N", "4", "-t", "demo", "scroll-up"]]
 
 
+def test_type_targets_active_pane_in_current_session_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    wrapper = _make_wrapper()
+    commands = []
+
+    monkeypatch.setattr(wrapper, "_run_tmux", lambda args: commands.append(args) or "")
+
+    wrapper.type("yes")
+
+    assert commands == [["send-keys", "-t", "demo:", "-l", "yes"]]
+
+
 def test_view_returns_contextual_diff(monkeypatch: pytest.MonkeyPatch) -> None:
     wrapper = _make_wrapper()
     wrapper._afterimage = ["line1", "line2", "line4"]

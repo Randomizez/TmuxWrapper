@@ -668,7 +668,7 @@ class TMUXWrapper:
             raise
 
     def _target(self) -> str:
-        return self.session
+        return f"{self.session}:"
 
     def _run_tmux(self, args: Iterable[str]) -> str:
         cmd = [self.tmux_bin, *args]
