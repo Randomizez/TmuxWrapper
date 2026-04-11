@@ -1,6 +1,4 @@
 import json
-import sys
-import types
 from pathlib import Path
 
 import pytest
@@ -36,7 +34,7 @@ class FakeTMUXWrapper:
     def type(self, text: str) -> None:
         self.calls.append(("type", text))
 
-    def press(self, chords: list[tuple[tmux_wrapper.Keys, ...]]) -> None:
+    def press(self, chords) -> None:
         self.calls.append(("press", chords))
 
     def delete(self) -> None:
@@ -294,14 +292,14 @@ def test_scroll_methods_reject_negative_line_counts() -> None:
         tmux_wrapper.TMUXWrapper._normalize_scroll_lines(-1)
 
 
-def test_main_without_args_prints_usage(capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_without_args_prints_usage(capsys) -> None:
     rc = tmux_wrapper.main([])
 
     assert rc == 1
     assert "Usage: tmux-c <session> <command> [args...]" in capsys.readouterr().out
 
 
-def test_main_skill_prints_embedded_or_repo_skill(capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_skill_prints_embedded_or_repo_skill(capsys) -> None:
     rc = tmux_wrapper.main(["skill"])
 
     out = capsys.readouterr().out
@@ -310,20 +308,21 @@ def test_main_skill_prints_embedded_or_repo_skill(capsys: pytest.CaptureFixture[
     assert "TMUX Wrapper" in out
 
 
-def test_main_dispatches_to_fire(monkeypatch: pytest.MonkeyPatch) -> None:
-    fire_calls = []
-
-    def fake_fire(component, command):
-        fire_calls.append((component, command))
-
-    fake_fire_module = types.SimpleNamespace(Fire=fake_fire)
+def test_main_dispatches_to_cli_command(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tmux_wrapper, "TMUXWrapper", FakeTMUXWrapper)
-    monkeypatch.setitem(sys.modules, "fire", fake_fire_module)
 
     rc = tmux_wrapper.main(["test", "press", "Enter"])
 
     assert rc == 0
-    assert len(fire_calls) == 1
-    component, command = fire_calls[0]
-    assert isinstance(component, tmux_wrapper._TMUXWrapperCLI)
-    assert command == ["press", "Enter"]
+    assert len(FakeTMUXWrapper.instances) == 1
+    assert FakeTMUXWrapper.instances[0].calls == [
+        ("press", [(tmux_wrapper.Keys.Enter,)]),
+    ]
+
+
+def test_main_rejects_unknown_commands(capsys) -> None:
+    rc = tmux_wrapper.main(["test", "bogus"])
+
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "Unknown command: bogus" in out

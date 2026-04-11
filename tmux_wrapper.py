@@ -52,8 +52,6 @@ CLI:
     $ tmux-c demo scroll_up 5
 """
 
-from __future__ import annotations
-
 from enum import Enum
 from functools import lru_cache
 import hashlib
@@ -67,7 +65,7 @@ import struct
 import subprocess
 import tempfile
 import time
-from typing import Iterable, Optional
+from typing import Iterable, List, Optional, Tuple
 import difflib
 
 class literal(str):
@@ -314,7 +312,7 @@ class TMUXRenderer:
         text: str,
         width: int,
         height: int,
-    ) -> list[str]:
+    ) -> List[str]:
         """Render a captured tmux screen and overlay the cursor position."""
         lines, cursor_pos = self._render_pty(text, width, height)
         if cursor_pos is not None:
@@ -330,7 +328,7 @@ class TMUXRenderer:
                 lines = [" " * width for _ in range(height - len(lines))] + lines
         return lines
 
-    def _render_pty(self, text: str, width: int, height: int) -> tuple[list[str], Optional[tuple[int, int]]]:
+    def _render_pty(self, text: str, width: int, height: int) -> Tuple[List[str], Optional[Tuple[int, int]]]:
         screen = [[" " for _ in range(width)] for _ in range(height)]
         row = 0
         col = 0
@@ -432,8 +430,8 @@ class TMUXRenderer:
         return lines, (row, min(max(col, 0), max(width - 1, 0)))
 
     @staticmethod
-    def _parse_csi(text: str, i: int) -> tuple[list[int], str, bool, int]:
-        params: list[int] = []
+    def _parse_csi(text: str, i: int) -> Tuple[List[int], str, bool, int]:
+        params: List[int] = []
         current = ""
         private = False
         while i < len(text):
@@ -465,16 +463,16 @@ class TMUXRenderer:
 
     def _apply_csi(
         self,
-        params: list[int],
+        params: List[int],
         final: str,
         row: int,
         col: int,
-        screen: list[list[str]],
+        screen: List[List[str]],
         saved_row: int,
         saved_col: int,
         scroll_top: int,
         scroll_bottom: int,
-    ) -> tuple[int, int, int, int, int, int]:
+    ) -> Tuple[int, int, int, int, int, int]:
         height = len(screen)
         width = len(screen[0]) if height else 0
         param = params[0] if params else 0
@@ -594,7 +592,7 @@ class TMUXWrapper:
             return
         self._run_tmux(["send-keys", "-t", self._target(), "-l", type_str])
 
-    def press(self, keys: list[tuple[Keys, ...]]) -> None:
+    def press(self, keys: List[Tuple[Keys, ...]]) -> None:
         """Send key chords to tmux.
 
         Each chord is a tuple containing zero or more modifiers plus exactly
@@ -676,7 +674,7 @@ class TMUXWrapper:
             completed = subprocess.run(
                 cmd,
                 check=True,
-                text=True,
+                universal_newlines=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -690,7 +688,7 @@ class TMUXWrapper:
     def _window_target(self) -> str:
         return self.session
 
-    def _attach_capture(self) -> list[str]:
+    def _attach_capture(self) -> List[str]:
         master_fd, slave_fd = pty.openpty()
         try:
             width, height = self._window_size()
@@ -741,13 +739,13 @@ class TMUXWrapper:
         text = output.decode("utf-8", errors="ignore")
         return self.renderer.render(text, width, height)
 
-    def _window_size(self) -> tuple[int, int]:
+    def _window_size(self) -> Tuple[int, int]:
         target = self._window_target()
         output = self._run_tmux(["display-message", "-p", "-t", target, "#{window_width} #{window_height}"]).strip()
         width_str, height_str = output.split()
         return int(width_str), int(height_str) + 1
 
-    def _client_size(self) -> Optional[tuple[int, int]]:
+    def _client_size(self) -> Optional[Tuple[int, int]]:
         try:
             output = self._run_tmux([
                 "list-clients",
@@ -784,16 +782,16 @@ class TMUXWrapper:
 
     @staticmethod
     @lru_cache(maxsize=1)
-    def _tmux_version() -> tuple[int, int, int]:
+    def _tmux_version() -> Tuple[int, int, int]:
         output = subprocess.run(
             ["tmux", "-V"],
             check=True,
-            text=True,
+            universal_newlines=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         ).stdout.strip()
         version = output.split()[-1]
-        digits: list[int] = []
+        digits: List[int] = []
         for part in version.replace("a", "").replace("b", "").split("."):
             if part.isdigit():
                 digits.append(int(part))
@@ -816,10 +814,10 @@ class TMUXWrapper:
 
     @staticmethod
     def _diff_lines(
-        before: list[str],
-        after: list[str],
+        before: List[str],
+        after: List[str],
         include_context: bool,
-    ) -> list[str]:
+    ) -> List[str]:
         diff = []
         for line in difflib.ndiff(before, after):
             if line.startswith(("- ", "? ")):
@@ -832,7 +830,7 @@ class TMUXWrapper:
         return diff
 
     @staticmethod
-    def _glance_lines(before: list[str], after: list[str]) -> list[str]:
+    def _glance_lines(before: List[str], after: List[str]) -> List[str]:
         lines = []
         pending_context = 0
         saw_addition = False
@@ -865,7 +863,7 @@ class TMUXWrapper:
             if self._in_copy_mode():
                 return
 
-    def _try_copy_mode_action(self, actions: list[str], repeat: int = 1) -> bool:
+    def _try_copy_mode_action(self, actions: List[str], repeat: int = 1) -> bool:
         for action in actions:
             cmd = ["send-keys", "-X"]
             if repeat != 1:
@@ -900,10 +898,10 @@ class TMUXWrapper:
             return
 
     @staticmethod
-    def _is_prefix_chord(chord: tuple[Keys, ...]) -> bool:
+    def _is_prefix_chord(chord: Tuple[Keys, ...]) -> bool:
         return set(chord) == {Keys.Ctrl, Keys.B}
 
-    def _handle_tmux_binding(self, chord: tuple[Keys, ...]) -> bool:
+    def _handle_tmux_binding(self, chord: Tuple[Keys, ...]) -> bool:
         mods, base = self._split_chord(chord)
         if base in (Keys.Up, Keys.Down, Keys.Left, Keys.Right) and not mods:
             direction = {
@@ -944,7 +942,7 @@ class TMUXWrapper:
         return False
 
     @staticmethod
-    def _split_chord(chord: tuple[Keys, ...]) -> tuple[list[Keys], Keys]:
+    def _split_chord(chord: Tuple[Keys, ...]) -> Tuple[List[Keys], Keys]:
         modifiers = {Keys.Ctrl, Keys.Alt, Keys.Shift}
         mods = [key for key in chord if key in modifiers]
         base_keys = [key for key in chord if key not in modifiers]
@@ -953,12 +951,12 @@ class TMUXWrapper:
         return mods, base_keys[0]
 
     @staticmethod
-    def _encode_chord(chord: tuple[Keys, ...]) -> str:
+    def _encode_chord(chord: Tuple[Keys, ...]) -> str:
         mods, base = TMUXWrapper._split_chord(chord)
         return TMUXWrapper._encode_key(mods, base)
 
     @staticmethod
-    def _encode_key(mods: list[Keys], base: Keys) -> str:
+    def _encode_key(mods: List[Keys], base: Keys) -> str:
         char = TMUXWrapper._encode_character_key(mods, base)
         if char is not None:
             return char
@@ -966,7 +964,7 @@ class TMUXWrapper:
         return TMUXWrapper._encode_special_key(mods, base)
 
     @staticmethod
-    def _encode_character_key(mods: list[Keys], base: Keys) -> Optional[str]:
+    def _encode_character_key(mods: List[Keys], base: Keys) -> Optional[str]:
         shifted = Keys.Shift in mods
 
         if base in TMUXWrapper._LETTER_KEYS:
@@ -991,12 +989,12 @@ class TMUXWrapper:
         return None
 
     @staticmethod
-    def _encode_special_key(mods: list[Keys], base: Keys) -> str:
+    def _encode_special_key(mods: List[Keys], base: Keys) -> str:
         key_name = TMUXWrapper._SPECIAL_KEYS.get(base, base.value)
         return TMUXWrapper._apply_modifiers(mods, key_name, force_named=True)
 
     @staticmethod
-    def _apply_modifiers(mods: list[Keys], key: str, force_named: bool = False) -> str:
+    def _apply_modifiers(mods: List[Keys], key: str, force_named: bool = False) -> str:
         mod_prefix = []
         if Keys.Ctrl in mods:
             mod_prefix.append("C")
@@ -1124,7 +1122,7 @@ def _parse_cli_key(name: str) -> Keys:
     raise ValueError(f"Unknown key: {name}")
 
 
-def _parse_cli_chord(chord: str) -> tuple[Keys, ...]:
+def _parse_cli_chord(chord: str) -> Tuple[Keys, ...]:
     parts = [part for part in chord.replace("-", "+").split("+") if part]
     if not parts:
         raise ValueError("Chord cannot be empty")
@@ -1202,34 +1200,101 @@ class _TMUXWrapperCLI:
     def delete(self) -> None:
         """Delete the tmux session and clear the saved CLI afterimage."""
         self._tmux.delete()
-        self._state_path.unlink(missing_ok=True)
+        try:
+            self._state_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
-def main(argv: Optional[list[str]] = None) -> int:
-    """Run the Fire-powered tmux CLI."""
+def _print_usage() -> None:
+    print("Usage: tmux-c <session> <command> [args...]")
+    print("Examples:")
+    print("  tmux-c skill")
+    print('  tmux-c test type "ls"')
+    print("  tmux-c test press Enter")
+    print("  tmux-c test view")
+    print("  tmux-c test glance")
+    print("  tmux-c test press Ctrl+C")
+    print("  tmux-c test press Ctrl+B Z")
+    print("  tmux-c test scroll_up 5")
+    print("Commands: glance, view, type, press, scroll_up, scroll_down, delete, snapshot")
+    print("Common press keys: Enter, Up, Down, Left, Right, PageUp, PageDown")
+
+
+def _parse_line_count(command_name: str, values: List[str]) -> int:
+    if len(values) > 1:
+        raise ValueError("%s accepts at most one line count" % command_name)
+    if not values:
+        return 3
+    try:
+        return int(values[0])
+    except ValueError:
+        raise ValueError("%s expects an integer line count" % command_name)
+
+
+def _run_cli_command(cli: _TMUXWrapperCLI, command: List[str]) -> Optional[literal]:
+    if not command:
+        raise ValueError("Provide a command, e.g. `glance` or `press Enter`")
+
+    name = command[0]
+    values = command[1:]
+
+    if name == "view":
+        if values:
+            raise ValueError("`view` does not take any arguments")
+        return cli.view()
+    if name == "glance":
+        if values:
+            raise ValueError("`glance` does not take any arguments")
+        return cli.glance()
+    if name == "type":
+        if len(values) != 1:
+            raise ValueError("`type` expects exactly one text argument")
+        cli.type(values[0])
+        return None
+    if name == "press":
+        cli.press(*values)
+        return None
+    if name == "scroll_up":
+        cli.scroll_up(_parse_line_count(name, values))
+        return None
+    if name == "scroll_down":
+        cli.scroll_down(_parse_line_count(name, values))
+        return None
+    if name == "delete":
+        if values:
+            raise ValueError("`delete` does not take any arguments")
+        cli.delete()
+        return None
+    if name == "snapshot":
+        if values:
+            raise ValueError("`snapshot` does not take any arguments")
+        return cli.snapshot()
+
+    raise ValueError("Unknown command: %s" % name)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """Run the tmux CLI."""
     args = list(os.sys.argv[1:] if argv is None else argv)
     if args == ["skill"]:
         print(_load_skill_text().rstrip())
         return 0
 
     if not args:
-        print("Usage: tmux-c <session> <command> [args...]")
-        print("Examples:")
-        print("  tmux-c skill")
-        print('  tmux-c test type "ls"')
-        print("  tmux-c test press Enter")
-        print("  tmux-c test view")
-        print("  tmux-c test glance")
-        print("  tmux-c test press Ctrl+C")
-        print("  tmux-c test press Ctrl+B Z")
-        print("  tmux-c test scroll_up 5")
-        print("Common press keys: Enter, Up, Down, Left, Right, PageUp, PageDown")
+        _print_usage()
         return 1
 
-    import fire
-
     session, *command = args
-    fire.Fire(_TMUXWrapperCLI(session), command=command)
+    try:
+        rendered = _run_cli_command(_TMUXWrapperCLI(session), command)
+    except ValueError as exc:
+        print("Error: %s" % exc)
+        _print_usage()
+        return 2
+
+    if rendered is not None:
+        print(rendered)
     return 0
 
 

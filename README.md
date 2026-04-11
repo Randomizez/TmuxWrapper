@@ -28,7 +28,7 @@ tmux-c skill
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.6+
 - `tmux` installed and available on `PATH`
 
 ## Core Model
@@ -221,10 +221,18 @@ Install development dependencies with uv:
 uv sync --dev
 ```
 
-Run tests:
+Run tests with the repo default interpreter:
 
 ```bash
 env -u VIRTUAL_ENV uv run pytest -q
+```
+
+Run the same suite against specific Python versions:
+
+```bash
+env -u VIRTUAL_ENV uv run --python 3.6 --group dev pytest -q
+env -u VIRTUAL_ENV uv run --python 3.8 --group dev pytest -q
+env -u VIRTUAL_ENV uv run --python 3.12 --group dev pytest -q
 ```
 
 Build distributions:
