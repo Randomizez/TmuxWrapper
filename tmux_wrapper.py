@@ -1232,44 +1232,53 @@ def _parse_line_count(command_name: str, values: List[str]) -> int:
         raise ValueError("%s expects an integer line count" % command_name)
 
 
-def _run_cli_command(cli: _TMUXWrapperCLI, command: List[str]) -> Optional[literal]:
+def _run_cli_command(session: str, command: List[str], tmux_bin: str = "tmux") -> Optional[literal]:
     if not command:
         raise ValueError("Provide a command, e.g. `glance` or `press Enter`")
 
     name = command[0]
     values = command[1:]
+    cli = None
+
+    def get_cli() -> _TMUXWrapperCLI:
+        nonlocal cli
+        if cli is None:
+            cli = _TMUXWrapperCLI(session, tmux_bin=tmux_bin)
+        return cli
 
     if name == "view":
         if values:
             raise ValueError("`view` does not take any arguments")
-        return cli.view()
+        return get_cli().view()
     if name == "glance":
         if values:
             raise ValueError("`glance` does not take any arguments")
-        return cli.glance()
+        return get_cli().glance()
     if name == "type":
         if len(values) != 1:
             raise ValueError("`type` expects exactly one text argument")
-        cli.type(values[0])
+        get_cli().type(values[0])
         return None
     if name == "press":
-        cli.press(*values)
+        if not values:
+            raise ValueError("Provide at least one chord, e.g. `press Enter`")
+        get_cli().press(*values)
         return None
     if name == "scroll_up":
-        cli.scroll_up(_parse_line_count(name, values))
+        get_cli().scroll_up(_parse_line_count(name, values))
         return None
     if name == "scroll_down":
-        cli.scroll_down(_parse_line_count(name, values))
+        get_cli().scroll_down(_parse_line_count(name, values))
         return None
     if name == "delete":
         if values:
             raise ValueError("`delete` does not take any arguments")
-        cli.delete()
+        get_cli().delete()
         return None
     if name == "snapshot":
         if values:
             raise ValueError("`snapshot` does not take any arguments")
-        return cli.snapshot()
+        return get_cli().snapshot()
 
     raise ValueError("Unknown command: %s" % name)
 
@@ -1287,7 +1296,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     session, *command = args
     try:
-        rendered = _run_cli_command(_TMUXWrapperCLI(session), command)
+        rendered = _run_cli_command(session, command)
     except ValueError as exc:
         print("Error: %s" % exc)
         _print_usage()
